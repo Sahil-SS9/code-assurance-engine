@@ -43,8 +43,8 @@ def pure_bombs(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", boom)
     monkeypatch.setattr(socket, "socket", boom)
     monkeypatch.setattr(urllib.request, "urlopen", boom)
-    monkeypatch.setattr("builtins.eval", boom)
-    monkeypatch.setattr("builtins.exec", boom)
+    # (builtins.exec/eval NOT patched: pytest's own import machinery legitimately execs modules;
+    #  patching them breaks the runner, not the subject under test.)
 
 
 def test_inventory_classification_is_inert(pure_bombs, tmp_path):
