@@ -1,0 +1,12 @@
+Code Assurance Engine
+Copyright 2026 Sahil Saghir
+
+This product is licensed under the Apache License, Version 2.0 (LICENSE).
+
+Independently specified and independently authored. Reviewer-lens recipes are conceptually
+informed by permissively licensed (Apache-2.0) Anthropic plugin sources; no code, prompts,
+schemas or fixtures were copied. See THIRD_PARTY_NOTICES.md and docs/provenance.md.
+
+The proprietary `claude-security` plugin (anthropics/claude-plugins-official, revision pinned in
+docs/provenance.md) is explicitly EXCLUDED: none of its code, prompts, workflows, schemas or
+documentation is used or represented in this product.

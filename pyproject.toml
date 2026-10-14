@@ -1,0 +1,38 @@
+[project]
+name = "hermes-code-assurance-engine"
+version = "0.1.0"
+description = "Change-assurance engine: evaluates an immutable repository candidate against an explicit check contract and returns machine-readable evidence, findings and unverified gaps."
+readme = "docs/README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Sahil Saghir (owner); authored by KENSEI" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hermes_code_assurance"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+  "unit: fast, dependency-free tests",
+  "adversarial: false-success / tampering / privacy attacks",
+  "integration: used-owned end-to-end suite",
+  "host: requires a real Hermes host install (skipped by default)",
+  "platform: OS-isolation backend tests (skipped by default)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint.per-file-ignores]
+# Root __init__.py is a directory-plugin entrypoint; the repo dir must stay hyphenated.
+"__init__.py" = ["N999"]

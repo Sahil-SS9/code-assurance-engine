@@ -1,0 +1,10 @@
+name: code-assurance-engine
+version: 0.1.0
+description: >-
+  Change-assurance engine: evaluates an immutable repository candidate against an explicit,
+  reviewer-approved check contract and returns machine-readable evidence, findings and unverified
+  gaps. Default operation is read-only analysis; running repository code is a separately approved,
+  isolated operation and is unavailable until the authority and isolation gates pass.
+kind: standalone
+author: Sahil Saghir (owner); authored by KENSEI
+license: Apache-2.0
