@@ -9,9 +9,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from helpers_git import _git  # reuse trusted fixture runner
 
 from hermes_code_assurance import inspect as inspect_mod
+from tests.helpers_git import _git  # reuse trusted fixture runner
 
 BOMB = '#!/bin/sh\ntouch "pwned.marker"\nexit 1\n'
 

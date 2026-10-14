@@ -41,6 +41,7 @@ def build_clean_receipt(*, parser, exit_code=0):
 
     counts = dict(parser.counts)
     receipt = {
+        "status": "FAILED" if (parser.counts.get("failed", 0) + parser.counts.get("errors", 0) or 0) > 0 and parser.status_hint != "unknown" else "UNKNOWN",
         "check_id": "unit-evidence",
         "attempt": 1,
         "candidate_digest": "a" * 64,

@@ -48,7 +48,7 @@ def test_relevant_untracked_flips_identity_and_is_listed(tmp_path):
 
 
 def test_ignored_inputs_recorded_but_not_part_of_identity(tmp_path):
-    from helpers_git import _git as tgit
+    from tests.helpers_git import _git as tgit
 
     tgit(tmp_path, "init", "-q")
     reader = candidate.GitCandidateReader()
@@ -104,7 +104,7 @@ def test_toolchain_reports_observed_git_and_unknown_env(tmp_path):
 
 
 def test_committed_changes_listed_from_base(tmp_path):
-    from helpers_git import committed_project
+    from tests.helpers_git import committed_project
 
     repo = committed_project(tmp_path)
     inv = candidate.GitCandidateReader().read(repo, base="HEAD~1", head="HEAD")

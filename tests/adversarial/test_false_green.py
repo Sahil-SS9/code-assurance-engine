@@ -7,10 +7,10 @@ Witnessed RED: evidence/verify modules do not exist yet.
 from __future__ import annotations
 
 import pytest
-from green_helpers import build_clean_receipt, build_contract  # same-dir helper
 
 from hermes_code_assurance import evidence
 from hermes_code_assurance.verify import reverify
+from tests.green_helpers import build_clean_receipt, build_contract  # same-dir helper
 
 FORGED_JUNIT = (  # producer LIES via attributes; counted children tell the truth
     '<?xml version="1.0"?>\n<testsuite name="s" tests="2" failures="0" errors="0" skipped="0">'
