@@ -8,3 +8,10 @@ description: >-
 kind: standalone
 author: Sahil Saghir (owner); authored by KENSEI
 license: Apache-2.0
+provides_tools:
+  - assure_inspect
+  - assure_plan_checks
+  - assure_status
+  - assure_verify
+  - assure_report
+  - assure_run
