@@ -135,4 +135,8 @@ class CheckRunner:
         )
 
     def _not_run(self, base: dict, reason: str, detail: str) -> dict:
-        return {**base, "status": "NOT_RUN", "reason": reason, "detail": detail}
+        from .evidence import receipt_id
+
+        receipt = {**base, "status": "NOT_RUN", "reason": reason, "detail": detail}
+        receipt["receipt_id"] = receipt_id(receipt)
+        return receipt

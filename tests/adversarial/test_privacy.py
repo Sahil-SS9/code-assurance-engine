@@ -56,6 +56,14 @@ def test_scrub_nested_record():
     assert "passthrough-should-be-dropped" not in json.dumps(scrubbed)
 
 
+def test_scrub_does_not_overreach_similar_names():
+    """env_allowlist is linkage, not a secret: prefix-key overreach corrupts records."""
+    scrubbed = privacy.scrub_record(
+        {"env_allowlist": ["PATH", "VIRTUAL_ENV"], "raw_body_ok_name": "keep"}
+    )
+    assert scrubbed["env_allowlist"] == ["PATH", "VIRTUAL_ENV"]
+
+
 def test_refusal_mode_refuses_residual_secrets():
     with pytest.raises(privacy.RedactionFailure):
         privacy.redact_or_refuse("residue akiaiosfodnn7example not caught by list")

@@ -35,9 +35,11 @@ _TOKEN_PATTERNS = [
 # document — the export/store path must refuse, never publish partial secrets.
 _RESIDUE = re.compile(r"(?i:\b(?:akia|ghp_|sk-(?:ant|proj)))")
 
+# Exact sensitive KEY NAMES (case-insensitive). Prefix matching must never be allowed: keys like
+# "env_allowlist" carry linkage, not credentials — dropping them corrupts the record.
 _SENSITIVE_KEY_RE = re.compile(
-    r"^(?i:(?:api[-_]?key|authoriza|bearer|cookie|credential|passwd|password|secret|token)"
-    r"|env|headers|prompt|raw|body)"
+    r"^(?i:api[-_]?key|authorization|bearer|cookie|credential|credentials|passwd|password|"
+    r"secret|token|env|headers|prompt|raw)$"
 )
 
 
