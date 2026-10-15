@@ -92,12 +92,15 @@ def test_assure_run_tool_is_gated_and_honest(tmp_path):
         {"contract": contract.to_dict(), "state_dir": str(tmp_path),
          "assessment_id": inspected["assessment_id"]}
     ))
-    handler = ctx.tools["assure_run"]["handler"]
-    out = json.loads(handler(
+    json.loads(ctx.tools["assure_run"]["handler"](
         {"assessment_id": inspected["assessment_id"], "repo": str(repo), "state_dir": str(tmp_path)}
     ))
-    assert out["status"] == "EXECUTION_UNAVAILABLE"
-    assert "authority" in out["detail"].lower() or "grant" in out["detail"].lower()
+    out = json.loads(ctx.tools["assure_run"]["handler"](
+        {"assessment_id": inspected["assessment_id"], "repo": str(repo), "state_dir": str(tmp_path)}
+    ))
+    assert out["status"] == "NOT_APPROVED"
+    assert "APPROVED" in out["detail"]
+    assert out.get("receipts_unchanged") is True
 
 
 def test_inspect_tool_flows_end_to_end(tmp_path):

@@ -30,10 +30,23 @@ def _invalid(note: str) -> VerifiedOutcome:
 
 
 def _allowed_failures(contract, check_id: str) -> int:
-    spec = next((c for c in contract.required_checks if c.check_id == check_id), None)
-    if spec is None:
-        spec = next((c for c in contract.optional_checks if c.check_id == check_id), None)
+    spec = _spec(contract, check_id)
     return int(spec.oracle_allowed_failures or 0) if spec else 0
+
+
+def _expected_collection(contract, check_id: str) -> int | None:
+    spec = _spec(contract, check_id)
+    if spec is None or spec.expected_collection is None:
+        return None
+    return int(spec.expected_collection[0]) if spec.expected_collection else None
+
+
+def _spec(contract, check_id: str):
+    for seq in (getattr(contract, "required_checks", ()), getattr(contract, "optional_checks", ())):
+        for spec in seq:
+            if spec.check_id == check_id:
+                return spec
+    return None
 
 
 def reverify(
@@ -44,9 +57,15 @@ def reverify(
     caller: str,
     trusted_collector_id: str = TRUSTED_ID,
     expected_attempt: int = 1,
+    assert_collector_identity: bool = True,
 ) -> VerifiedOutcome:
-    """Recompute trust in one receipt against the frozen contract and current identity params."""
-    if receipt.get("collector") != trusted_collector_id:
+    """Recompute trust in one receipt against the frozen contract and current identity params.
+
+    assert_collector_identity=False is the production seam: the production service cannot prove
+    an authentic collector from receipt content alone (C5), so it skips the collector layer and
+    applies its own provenance downgrade instead. Test-owned seams (synthetic fixtures) pass the
+    explicit trusted-collector identity to exercise the full layer set."""
+    if assert_collector_identity and receipt.get("collector") != trusted_collector_id:
         return _invalid(f"collector identity {receipt.get('collector')!r} is not trusted")
 
     notes = []
@@ -101,6 +120,22 @@ def reverify(
     collected = counts.get("collected")
     if not collected:
         return VerifiedOutcome("UNKNOWN", ["zero-test collection stays a visible gap"])
+
+    skipped = counts.get("skipped") or 0
+    if skipped == collected:
+        return VerifiedOutcome(
+            "UNKNOWN",
+            [(f"all {collected} collected test(s) skipped: no executed coverage; "
+             "skips are never a pass")],
+        )
+
+    expected = _expected_collection(contract, receipt["check_id"])
+    if expected is not None and collected != expected:
+        return VerifiedOutcome(
+            "UNKNOWN",
+            [(f"collected {collected} tests but expected collection is {expected}: "
+             "short or divergent collection cannot clear")],
+        )
 
     if (receipt.get("observed") or {}).get("exit_code") != 0:
         return VerifiedOutcome("UNKNOWN", ["nonzero process exit stays a visible gap"])

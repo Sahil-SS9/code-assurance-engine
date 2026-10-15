@@ -29,9 +29,10 @@ def build_contract():
     )
 
 
-def build_clean_receipt(*, parser, exit_code=0):
-    """A receipt as the boxed collector would stamp it (counts from the parser, honest)."""
-    from hermes_code_assurance import evidence  # noqa: F401
+def build_clean_receipt(*, parser, exit_code=0, contract=None, env=None):
+    """A receipt as the boxed collector would stamp it (counts from the parser, honest).
+    `contract` overrides the default fixture contract (for expected-collection variants); `env`
+    substitutes the env allowlist for the digest (must match the contract under test)."""
     from hermes_code_assurance.evidence import (
         TRUSTED_ID,
         argv_digest_for,
@@ -40,14 +41,28 @@ def build_clean_receipt(*, parser, exit_code=0):
     )
 
     counts = dict(parser.counts)
+    bound_contract = contract if contract is not None else build_contract()
+    allowlist = list(env if env is not None else bound_contract.env_allowlist)
+    check_spec = None
+    for spec in bound_contract.required_checks:
+        if spec.check_id == "unit-evidence":
+            check_spec = spec
+            break
+    argv = list(check_spec.argv) if check_spec is not None else ["python", "-m", "pytest", "-q"]
+    status = (
+        "FAILED"
+        if (counts.get("failed", 0) + counts.get("errors", 0)) > 0
+        and parser.status_hint != "unknown"
+        else "UNKNOWN"
+    )
     receipt = {
-        "status": "FAILED" if (parser.counts.get("failed", 0) + parser.counts.get("errors", 0) or 0) > 0 and parser.status_hint != "unknown" else "UNKNOWN",
+        "status": status,
         "check_id": "unit-evidence",
         "attempt": 1,
         "candidate_digest": "a" * 64,
-        "contract_id": build_contract().contract_id,
-        "argv_digest": argv_digest_for(["python", "-m", "pytest", "-q"]),
-        "env_digest": env_digest_for(["PATH"]),
+        "contract_id": bound_contract.contract_id,
+        "argv_digest": argv_digest_for(argv),
+        "env_digest": env_digest_for(allowlist),
         "grant_ref": None,
         "caller": "cli:root",
         "collector": TRUSTED_ID,
