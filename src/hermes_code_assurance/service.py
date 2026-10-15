@@ -255,13 +255,20 @@ def verify(state_dir, assessment_id: str, caller: str = "cli") -> dict:
             assert_collector_identity=False,  # collector identity CANNOT be proven from content
         )
         result = verified.to_dict()
-        if payload.get("grant_ref") is None and verified.status == "PASSED":
+        # C5 (round-2): at the public production seam, NO receipt field can establish trust —
+        # absent, empty, or made-up grant references and self-supplied collector strings alike.
+        # The protected-host authority/collector seam does not exist in this build, so every
+        # otherwise-passing observation stays UNKNOWN with an explicit provenance gap regardless
+        # of spelling. No special-case for any literal value.
+        provenance_note = (
+            "C5 provenance gate: no independently verified authority or collection — the "
+            "protected-host trust source is not connected in this build; a receipt's own "
+            "grant_ref/collector strings (absent, empty, invented, or self-supplied) cannot "
+            "establish provenance. Did not clear to PASSED."
+        )
+        if verified.status == "PASSED":
             result["status"] = "UNKNOWN"
-            result["notes"] = list(result["notes"]) + [
-                ("C5 provenance gate: no authenticated grant correlation — the protected-host "
-                "trust source is not connected in this build; synthetic or self-supplied "
-                "provenance stays UNKNOWN. Did not clear to PASSED.")
-            ]
+            result["notes"] = list(result["notes"]) + [provenance_note]
         if result["status"] == "PASSED":
             seen_pass.add(payload.get("check_id"))
         results.append({**result, "check_id": payload.get("check_id")})
@@ -274,9 +281,11 @@ def verify(state_dir, assessment_id: str, caller: str = "cli") -> dict:
         "missing_required": missing_required,
         "receipts_count": len(receipt_rows),
         "verification": results,
-        "trust_model": "production-strict: receipts without grant correlation never clear; "
-                       "protected-host trust seam not wired in this build (INCOMPLETE by design "
-                       "until C0.2/C0.3 land)",
+        "trust_model": "production-strict (round-2): receipts without independently verified "
+                       "authority/collection never clear — grant_ref/collector strings of ANY "
+                       "spelling are receipt content, not provenance; the protected-host trust "
+                       "seam is not wired in this build (INCOMPLETE by design until C0.2/C0.3 "
+                       "land)",
     }
     stored_payload = dict(assessment["payload"])
     stored_payload["completion"] = completion
