@@ -1,8 +1,29 @@
 # Research decisions (recorded)
 
-Reference papers (pin list from plan §8) were NOT re-read this build; single-method ablation,
-input honesty: NO performance claim from a paper is adopted without its primary read. Marked
-here so nothing below can be misread as literature-backed:
+## Round-2 (review-repair round, 2026-10-15)
+8. Review round 1 REPRODUCED five defect classes; repairs C1–C5 are recorded here:
+   - C1: verdict gates added (all-skipped ≠ pass; expected-collection mismatch ≠ pass; missing
+     required check ids named explicitly; duplicates/optional receipts cannot cover).
+   - C2: the COMPLETE canonical contract persists under payload["contract"]; every consumer
+     re-parses THAT dict; any contract-id drift or identity-stamp failure REFUSES (no rebuild
+     from draft+defaults anywhere).
+   - C3: run requires APPROVED and refuses BEFORE mutation; whole run = one fenced transaction
+     (interrupted run rolls back receipts AND state together); verify is idempotent and refuses
+     new-receipt drift without writing (restricted graph preserved, not opened up).
+   - C4: per-call state-root ladder: trusted registered override → args override only when
+     inside permitted roots → host-active plugin-data → REFUSE with no write. No bare
+     Path.home() fallback exists any more. Reviewed stray directory left untouched pending
+     separate owner cleanup approval.
+   - C5: production provenance is strict: the collector identity layer cannot clear from
+     receipt content; receipts without authenticated grant correlation stay UNKNOWN with an
+     explicit note; scope-complete overall is unreachable from the public service until the
+     protected-host trust seam lands. The product is labelled PARTIAL read-only / evidence
+     foundation; execution remains unimplemented.
+9. skip-marked host/platform tests remain open C0.2/C0.3 tasks (NotImplementedError bodies) —
+   they are NOT runnable-pending-one-permission tests and are never counted as passing.
+
+Reference papers (pin list from plan §8) were NOT re-read; NO performance claim is adopted
+without its primary read.
 
 ## Decisions actually made this build
 1. NO JavaScript runner — the plan's "one explicitly supported JS runner" was NOT frozen in
