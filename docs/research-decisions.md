@@ -1,5 +1,16 @@
 # Research decisions (recorded)
 
+## Round-3 (C5 residual correction, recheck be462d7 → repair 10614d9)
+10. Recheck reproduced the fabricated-grant residual: any non-null grant_ref (made-up or empty)
+    moved an unauthenticated receipt from UNKNOWN to PASSED and emptied missing_required.
+    Root cause: the round-2 downgrade keyed on `grant_ref is None` — spelling-affected.
+    Repair: provenance cannot derive from receipt content in ANY spelling; at the public seam
+    every otherwise-passing observation stays UNKNOWN with an explicit provenance note, and
+    required coverage remains unresolved until the protected-host authority/collector seam
+    exists (C0.2/C0.3 unchanged, open). Parameterised RED-first regressions (absent / null /
+    empty / made-up / invented) plus a separately labelled test-owned kernel positive control
+    document the boundary. Overall INCOMPLETE cap retained exactly as reviewed.
+
 ## Round-2 (review-repair round, 2026-10-15)
 8. Review round 1 REPRODUCED five defect classes; repairs C1–C5 are recorded here:
    - C1: verdict gates added (all-skipped ≠ pass; expected-collection mismatch ≠ pass; missing
