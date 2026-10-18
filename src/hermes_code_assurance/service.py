@@ -565,9 +565,13 @@ def verify(state_dir, assessment_id: str, caller: str = "cli") -> dict:
         cur = conn.execute("SELECT state FROM assessments WHERE id=?", (assessment_id,)).fetchone()
         if cur is None or cur["state"] != state:
             raise RuntimeError("concurrent state change detected: verify refused")
+        # The verdict transition is audited like every other state change: store.set_state
+        # re-CASes on old_state, enforces the state graph and writes the event row here —
+        # inside this SAME fenced transaction (independent-review finding, 2026-10-18).
+        store.set_state(assessment_id, "ASSESSED", old_state=state)
         conn.execute(
-            "UPDATE assessments SET state=?, payload=? WHERE id=?",
-            ("ASSESSED", _dump_json(stored_payload), assessment_id),
+            "UPDATE assessments SET payload=? WHERE id=?",
+            (_dump_json(stored_payload), assessment_id),
         )
     return {**completion, "assessment_id": assessment_id,
             "contract_id": assessment["payload"].get("contract_id")}

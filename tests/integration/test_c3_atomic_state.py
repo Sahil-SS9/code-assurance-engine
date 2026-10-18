@@ -85,3 +85,22 @@ def test_repeated_verify_idempotent_no_new_writes(tmp_path):
     second = service.verify(tmp_path / "state", aid, caller="cli:root")
     assert first["overall_status"] == second["overall_status"]
     assert json.dumps(store.get_assessment(aid)["payload"], sort_keys=True) == first_payload
+
+
+def test_verifys_final_transition_is_audited_as_a_state_change_event(tmp_path):
+    """Independent-review finding (2026-10-18, quan): verify's RUNNING->ASSESSED (or
+    CONTRACT_REVIEW_REQUIRED->ASSESSED finalize) once bypassed the store's event stream —
+
+    the assessment reached ASSESSED while the last recorded state-change event ended
+    elsewhere. Verdict transitions are state changes: they must be audited like every other.
+    """
+    service, store, aid, _contract = _setup(tmp_path)
+    service.verify(tmp_path / "state", aid, caller="cli:root")
+    state_events = [
+        event["detail"].get("to")
+        for event in store.events(aid)
+        if event["kind"] == "state-change"
+    ]  # store.events already returns parsed dicts
+    assert state_events[-1] == "ASSESSED", (
+        "the final verdict transition must leave a state-change audit event"
+    )
