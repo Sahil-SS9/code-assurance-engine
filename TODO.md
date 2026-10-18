@@ -1,6 +1,7 @@
 # TODO — Code Assurance Engine (pickup state)
 
-Updated: 2026-10-15 · Accepted HEAD: `30030af` · Plan source of truth:
+Updated: 2026-10-18 · Accepted HEAD `30030af` · M1 execution slice + wiring: ON TOPOF `6a52add`,
+uncommitted until owner review · Plan source of truth:
 `/home/kensei/handoff/agent-plugin-plans/.hermes/plans/2026-10-14-code-assurance-engine.md`
 
 ## What this is
@@ -51,33 +52,41 @@ claim.
   stubs. Gate: `scripts/checks.sh` (includes uv + global hermes launcher; not a harmless
   read-only check).
 
-## Remaining work — next engineering milestone (owner-scoped, NOT yet authorised)
+## Current engineering state (18/10/2026 — M1 slice COMPLETE, awaiting the owner signature)
 
-**M1 (recommended): one harmless check end-to-end (C0.2/C0.3 vertical slice).**
+- M1 execution slice (Docker isolation + owner Ed25519 authority + freeze + protected
+  collector + hostile-code batteries): 364 passed/4 skipped (see FINAL-IMPLEMENTATION-EVIDENCE).
+- M1 step 3 WIRING (Kensei, 18 Oct): the public CLI route now consumes a real owner-signed
+  bundle end to end — `assure approve` (owner-gated review completion: CONTRACT_REVIEW_REQUIRED
+  -> APPROVED requires owner-class authority) and `assure run --owner-keys/--owner-request/
+  --owner-signature` (authorize -> one-use ledger claim -> freeze -> attestation -> run ->
+  protected collection -> recorded receipt), plus the verify seam: receipts clear ONLY on
+  owner-class provenance in the private authority ledger; fixture-class provenance never
+  clears (C5 preserved rigidly — no receipt field mints trust).
+- New wiring suite: tests/integration/test_owner_journey_service.py (12 tests) — staging is
+  exclusive, wrong-scope/edited/expired bundles refuse before ANY mutation, one-use replay
+  refused, failing candidates honest, unauthenticated collect interrupts, scope-complete only
+  with owner provenance.
+- Suite at wiring head: 376 passed / 3 skipped (CT18 matrix placeholder retired to its honest
+  blocker label; CT10 now runs for real). Ruff clean.
+- Wiring evidence: evidence/code-assurance-first-check/run-20261018T-wiring-greenhead/.
+- Remaining M1 finishing move (owner action then agent): Sahil runs the amended
+  prepare-owner-approved-check.sh (fresh data_root ...engine-j1; exact journey argv + real
+  digests supplied), then: verify bundle -> wired run on the real backend -> report -> owner
+  review packet. CT17/CT18 remain recorded blockers (need a live host / other OSes).
 
-1. C0.2 authority path: implement the trusted host-side grant issuance (owner-run CLI writing
-   a decision record OUTSIDE the candidate workspace) + runner consumption with full binding
-   verification. Kernel/fixture unit seams exist; the protected-host route does not.
-2. C0.3 isolation: pick and VERIFY a native containment backend (recommend bwrap spike first,
-   fallback landlock/unshare). Gate = CT10 escape battery (network-off, read-only source/
-   oracle, candidate-only writes, no credential/proc escape). Worktree/tmp is NOT a sandbox.
-3. The journey: disposable scratch fixture repo → owner-approve contract → gated run with
-   verified grant+isolation → trusted collector receipt → public verify (preserves C5 hold)
-   → private JSON/Markdown report. No live profile writes; no install.
-4. Convert the four skip-marked host/platform placeholder tests into runnable versions:
-   CT09 (authority routes), CT10 (containment), CT17 (lifecycle on a real host), CT18 (matrix).
-
-**M2 (after M1):** first REAL candidate assessment + value benchmark (CT21: seeded defects,
-clean negatives, false-assurance rate) — needs owner-selected candidate repo/goals.
+**M2 (after the signed journey):** first REAL candidate assessment + value benchmark
+(CT21: seeded defects, clean negatives, false-assurance rate) — needs owner-selected
+candidate repo/goals.
 
 **Later/optional:** more language parsers, OASIS SARIF adapter, SDK UI, policy integration
 (each separately gated). Research leads in plan §8 (arXiv refs) remain unread/unadopted.
 
-## Owner decisions pending (before/during M1)
+## Owner decisions pending (before the signed journey / M2)
 
-- Authority record format + issuance command + who signs what (C0.2).
-- Isolation backend choice + acceptance evidence for CT10 (C0.3).
-- Scope/permission set for M1 (it is engineering, not an INSTALL/DEPLOY/PUBLISH approval).
+- The one signature: Sahil runs prepare-owner-approved-check.sh with the real staged digest
+  values (engine prints them; nothing else needed from him).
+- M2 candidate repo + goals.
 - Cleanup approval for the stray `~/.hermes/plugin-data/code-assurance-engine` (76K, engine-
   created test residue; preserved untouched; must NOT be deleted without named approval).
 - Model lane stays factory-OFF (no egress spend approved).

@@ -17,6 +17,8 @@ Repair contract (C1–C5):
 from __future__ import annotations
 
 import json
+import os
+import shutil
 from pathlib import Path
 
 from . import findings as findings_mod
@@ -198,6 +200,258 @@ def _default_authority():
     return DenyAllAuthority()
 
 
+# ============================================================================ owner journey
+#
+# M1 step 3 wiring: the public CLI route consumes an owner-signed bundle. The ONLY granted
+# execution path in this build (route "cli"); every other surface stays default-denied below.
+# All refusals happen BEFORE any mutation: receipts and state stay untouched on denial.
+
+
+def _staged_oracle(state_dir) -> Path:
+    from .owner_authority import AuthorityDenied
+
+    staged = Path(state_dir) / "journey" / "oracle"
+    if staged.is_symlink() or not staged.is_dir():
+        reason = ("the evaluator oracle is not staged yet: run the journey staging step first "
+                  f"(expected {staged})")
+        raise AuthorityDenied([reason])
+    return staged
+
+
+def stage_journey(state_dir, assessment_id: str, *, oracle_source: str) -> dict:
+    """Stage the evaluator-owned oracle under the state root and return the exact scope bundle
+    the owner must place in the request they sign. Read-only for the candidate; never executes."""
+    loaded, refusal = _journey_load(state_dir, assessment_id)
+    if refusal is not None:
+        return {**refusal, "status": refusal["status"]}
+    _store_obj, assessment, contract = loaded
+    del _store_obj
+    journey_dir = Path(state_dir) / "journey"
+    staged = journey_dir / "oracle"
+    if staged.exists() or staged.is_symlink():
+        return {"assessment_id": assessment_id, "status": "ALREADY_STAGED",
+                "detail": "the oracle is already staged; refusing to overwrite (stage nothing"
+                          " silently)",
+                }
+    source = Path(oracle_source)
+    if source.is_symlink() or not source.is_dir():
+        return {"assessment_id": assessment_id, "status": "INVALID_ORACLE_SOURCE",
+                "detail": "oracle source must be a real directory (no symlinks)"}
+    journey_dir.mkdir(mode=0o700)
+    try:
+        from hermes_code_assurance.owner_execution import journey_specs_from
+
+        shutil.copytree(source, staged)
+        os.chmod(journey_dir, 0o700)
+        specs = journey_specs_from(assessment=assessment, contract=contract, staged_oracle=staged)
+    except Exception as exc:  # noqa: BLE001 - deliberate: staging failures become honest refusals
+        shutil.rmtree(staged, ignore_errors=True)
+        from hermes_code_assurance.owner_authority import AuthorityDenied
+
+        if isinstance(exc, AuthorityDenied):
+            return {"assessment_id": assessment_id, "status": "AUTHORITY_REFUSED",
+                    "detail": "; ".join(exc.reasons)}
+        return {"assessment_id": assessment_id, "status": "STAGING_REFUSED",
+                "detail": f"{exc}"}
+    from hermes_code_assurance.owner_execution import stage_digest_bundle as _bundle
+
+    return {"assessment_id": assessment_id, "status": "STAGED",
+            "oracle_source": str(staged), **_bundle(specs)}
+
+
+def _expected_operation(*, state_dir: str, specs, peek: dict) -> dict:
+    """Bind everything the store + engine know; owner/attempt-id come from the signed body."""
+    return {
+        "schema_version": 1,
+        "owner": peek["owner"],
+        "route": "cli",
+        "data_root": str(Path(state_dir).resolve()),
+        "assessment_id": specs.assessment_id,
+        "attempt": 1,
+        "attempt_id": peek["attempt_id"],
+        "check_id": specs.check_id,
+        "candidate_digest": specs.candidate_digest,
+        "contract_id": specs.contract_id,
+        "oracle_digest": specs.oracle_digest,
+        "toolchain_digest": specs.toolchain_digest,
+        "collector_digest": specs.collector_digest,
+        "image": specs.image,
+        "isolation_policy_digest": specs.isolation_policy_digest,
+        "argv": list(specs.argv),
+        "env_digest": specs.env_digest,
+        "limits": dict(specs.limits),
+        "network": "none",
+    }
+
+
+def approve_contract(state_dir, assessment_id: str, *, owner_keys: str, owner_request: str,
+                     owner_signature: str) -> dict:
+    """Owner-gated review completion: a verified owner signature moves
+    CONTRACT_REVIEW_REQUIRED -> APPROVED. Fixture-class authority is refused here."""
+    import hermes_code_assurance.owner_execution as journey
+
+    from .owner_authority import OwnerAuthority
+
+    loaded, refusal = _journey_load(state_dir, assessment_id)
+    if refusal is not None:
+        return refusal
+    store, assessment, contract = loaded
+    state = assessment["state"]
+    if state != "CONTRACT_REVIEW_REQUIRED":
+        return {"assessment_id": assessment_id, "status": "STATE_REFUSED",
+                "detail": f"approve requires state CONTRACT_REVIEW_REQUIRED; current {state!r}",
+                "receipts_unchanged": True}
+    request_bytes, signature_bytes = journey.read_bundle(owner_request, owner_signature)
+    peek = journey.peek_owner_operation(request_bytes)
+    trust = journey.load_trust_root(owner_keys)
+    specs = journey.journey_specs_from(
+        assessment=assessment, contract=contract, staged_oracle=_staged_oracle(state_dir)
+    )
+    authority = OwnerAuthority(trust, None)
+    authorization = authority.evaluate(
+        request_bytes, signature_bytes,
+        _expected_operation(state_dir=str(state_dir), specs=specs, peek=peek),
+    )
+    if authorization.authority_class != "owner":
+        return {"assessment_id": assessment_id, "status": "AUTHORITY_CLASS_REFUSED",
+                "detail": "contract approval requires owner-class authority; got "
+                          f"{authorization.authority_class!r} (fixture roots never approve)"}
+    store.set_state(assessment_id, "APPROVED", old_state="CONTRACT_REVIEW_REQUIRED")
+    return {
+        "assessment_id": assessment_id,
+        "contract_id": authorization.operation.get("contract_id"),
+        "state": "APPROVED",
+        "authorization": {
+            "owner": authorization.owner, "key_id": authorization.key_id,
+            "authority_class": authorization.authority_class,
+            "request_sha256": authorization.request_sha256,
+            "expires_at": authorization.expires_at,
+        },
+        "detail": "owner signature verified against the exact frozen contract; run_owner_journey "
+                  "may consume this grant exactly once",
+    }
+
+
+def run_owner_journey(state_dir, assessment_id: str, *, owner_keys: str, owner_request: str,
+                      owner_signature: str, backend=None, caller: str = "cli") -> dict:
+    """The single authorized execution route: owner-signed bundle -> one isolated observation.
+
+    Denials of a SUPPLIED bundle refuse before any mutation (receipts unchanged). With no bundle
+    (this route does not accept absence), use the default run_checks denial path instead.
+    The `backend` parameter is a test seam; production callers pass None (real rootless Docker).
+    """
+    import hermes_code_assurance.owner_execution as journey
+
+    from .authority import TrustedGrant, argv_digest
+    from .owner_authority import AuthorityLedger, OwnerAuthority
+    from .owner_execution import OwnerJourneyExecutor
+    from .sandbox import RootlessDockerBackend
+
+    loaded, refusal = _journey_load(state_dir, assessment_id)
+    if refusal is not None:
+        return refusal
+    store, assessment, contract = loaded
+    state = assessment["state"]
+    if state != "APPROVED":
+        return {"assessment_id": assessment_id, "status": "NOT_APPROVED",
+                "detail": f"run requires state APPROVED; current state is {state}",
+                "receipts_unchanged": True}
+    request_bytes, signature_bytes = journey.read_bundle(owner_request, owner_signature)
+    peek = journey.peek_owner_operation(request_bytes)
+    trust = journey.load_trust_root(owner_keys)
+    payload = assessment["payload"]
+    specs = journey.journey_specs_from(
+        assessment=assessment, contract=contract, staged_oracle=_staged_oracle(state_dir)
+    )
+    ledger = AuthorityLedger(Path(state_dir) / "authority-ledger.db")
+    ledger.ensure()
+    expected = _expected_operation(state_dir=str(state_dir), specs=specs, peek=peek)
+    authorization = OwnerAuthority(trust, ledger).evaluate(
+        request_bytes, signature_bytes, expected,
+    )  # AuthorityDenied propagates: refusal before any mutation below
+
+    check_id = authorization.operation.get("check_id")
+    grants = {
+        check_id: TrustedGrant(
+            # The kernel requester is the CALLER identity (route), not the owner name: the
+            # owner is proven cryptographically (signature + trust root + ledger), not by a
+            # caller string. The owner's identity stays in grant_id + the ledger claim row.
+            grant_id=f"owner:{authorization.owner}:{authorization.key_id}:"
+                     f"{authorization.request_sha256[:16]}",
+            requester=caller,
+            candidate_digest=str(authorization.operation.get("candidate_digest")),
+            contract_id=str(authorization.operation.get("contract_id")),
+            check_id=str(check_id),
+            argv_sha256=argv_digest(authorization.operation.get("argv") or ()),
+            env_sha256=str(authorization.operation.get("env_digest")),
+            expires_epoch_seconds=int(authorization.expires_at),
+        ),
+    }
+    trusted_decisions = {
+        check_id: {"issuer": "outside-candidate-workspace",
+                   "decision_id": f"code-assurance-owner-authorization:{authorization.key_id}"},
+    }
+    adapter = OwnerJourneyExecutor(
+        backend=backend if backend is not None else RootlessDockerBackend(),
+        ledger=ledger,
+        authorization=authorization,
+        state_dir=Path(state_dir),
+        contract=contract,
+        candidate_source=Path(str(payload.get("repo_root", ""))),
+        candidate_base=payload.get("base"),
+        candidate_head=payload.get("head"),
+        expected_candidate_digest=specs.candidate_digest,
+        staged_oracle=_staged_oracle(state_dir),
+        caller=caller,
+    )
+    runner = CheckRunner(authority=_default_authority(), execution_adapter=adapter)
+    receipts = runner.attempt_checks(
+        contract,
+        candidate_digest=specs.candidate_digest,
+        caller=caller,
+        grants=grants,
+        trusted_decisions=trusted_decisions,
+    )
+    with store.transaction():  # C3: receipts + state roll back together
+        for receipt in receipts:
+            store.append_receipt(assessment_id, receipt)
+        store.set_state(assessment_id, "RUNNING", old_state="APPROVED")
+    statuses = {receipt["status"] for receipt in receipts}
+    final_status = ("INTERRUPTED" if statuses & {"INTERRUPTED", "UNKNOWN"} else "EXECUTED")
+    if final_status == "INTERRUPTED":
+        with store.transaction():
+            store.set_state(assessment_id, "INTERRUPTED", old_state="RUNNING")
+    return {
+        **_contract_public(assessment_id, contract),
+        "status": final_status,
+        "attempt_id": authorization.operation.get("attempt_id"),
+        "authorization": {
+            "owner": authorization.owner, "key_id": authorization.key_id,
+            "authority_class": authorization.authority_class,
+            "request_sha256": authorization.request_sha256,
+            "expires_at": authorization.expires_at,
+        },
+        "checks": [{"check_id": r.get("check_id"), "status": r.get("status")}
+                   for r in receipts],
+        "detail": ("one signed check executed under verified isolation and a protected collector"
+                   if final_status == "EXECUTED" else
+                   "the signed attempt did not produce a trusted result; receipts are honest"),
+    }
+
+
+def _journey_load(state_dir, assessment_id: str):
+    """Load (store, assessment, contract) or an honest refusal dict for the journey routes."""
+    store = _store(state_dir)
+    try:
+        assessment, contract = _assessment_with_contract(store, assessment_id)
+    except KeyError as exc:
+        return None, {"status": "NOT_FOUND", "reason": str(exc), "receipts_unchanged": True}
+    except ContractIntegrityRefusal as exc:
+        return None, {"status": "EVIDENCE_INTEGRITY_REFUSAL", "reason": str(exc),
+                      "receipts_unchanged": True}
+    return (store, assessment, contract), None
+
+
 _verify_allowed_states = ("CONTRACT_REVIEW_REQUIRED", "APPROVED", "AUTHORITY_REQUIRED",
                           "EXECUTION_UNAVAILABLE", "RUNNING", "INTERRUPTED", "BUDGET_STOPPED",
                           "FAILED")
@@ -212,9 +466,9 @@ def verify(state_dir, assessment_id: str, caller: str = "cli") -> dict:
     writing; new receipts since the last assessment REFUSE (evidence-refresh is an explicit
     owner action), also without writing.
 
-    C5: production trust is strict — a receipt without grant correlation stays UNKNOWN no
-    matter how self-consistent its hashes; scope-complete overall is unreachable until the
-    protected-host trust seam exists.
+    C5: production trust is strict — a receipt clears only when the private authority ledger
+    independently records owner provenance for it; every other receipt stays UNKNOWN no matter
+    how self-consistent its hashes.
     """
     store = _store(state_dir)
     try:
@@ -242,50 +496,68 @@ def verify(state_dir, assessment_id: str, caller: str = "cli") -> dict:
         return {"assessment_id": assessment_id, "overall_status": "INVALID_EVIDENCE",
                 "detail": f"verify not permitted from state {state}"}
 
+    # The protected-host trust seam: provenance comes ONLY from the private authority ledger
+    # written beside the executed claims. The ledger is opened read-if-exists; nothing here
+    # creates it, and a missing ledger preserves the exact round-2 behaviour below.
+    from .owner_authority import AuthorityLedger
+
+    ledger = AuthorityLedger.open_existing(Path(state_dir) / "authority-ledger.db")
+
     results = []
     seen_pass: set[str] = set()
+    owner_provenanced: set[str] = set()
+    provenance_note = (
+        "C5 provenance gate: no independently verified authority or collection — the "
+        "protected-host trust source is not connected in this build; a receipt's own "
+        "grant_ref/collector strings (absent, empty, invented, or self-supplied) cannot "
+        "establish provenance. Did not clear to PASSED."
+    )
     for rec in receipt_rows:
         payload = rec["payload"]
+        provenance = _production_collector_of(payload, ledger, assessment_id)
+        has_owner_provenance = provenance is not None
         verified = reverify(
             payload,
             contract=contract,
             candidate_digest=assessment["payload"].get("inventory_digest", ""),
             caller=caller,
-            trusted_collector_id=_production_collector_of(payload),
-            assert_collector_identity=False,  # collector identity CANNOT be proven from content
+            # When provenance exists, the ledger row CONFIRMED this receipt's collector record;
+            # assert the receipt's collector field openly against it (restored identity layer).
+            # Without provenance the identity layer cannot be proven from content: off, and
+            # PASSED observations downgrade to UNKNOWN with the explicit gap note.
+            trusted_collector_id=payload.get("collector") if has_owner_provenance
+            else _NO_PROVENANCE_COLLECTOR,
+            assert_collector_identity=has_owner_provenance,
         )
         result = verified.to_dict()
         # C5 (round-2): at the public production seam, NO receipt field can establish trust —
         # absent, empty, or made-up grant references and self-supplied collector strings alike.
-        # The protected-host authority/collector seam does not exist in this build, so every
-        # otherwise-passing observation stays UNKNOWN with an explicit provenance gap regardless
-        # of spelling. No special-case for any literal value.
-        provenance_note = (
-            "C5 provenance gate: no independently verified authority or collection — the "
-            "protected-host trust source is not connected in this build; a receipt's own "
-            "grant_ref/collector strings (absent, empty, invented, or self-supplied) cannot "
-            "establish provenance. Did not clear to PASSED."
-        )
-        if verified.status == "PASSED":
+        # Independently recorded owner provenance (the private ledger row joined by receipt_id,
+        # bound to this assessment/check/collector) restores the collector identity layer; every
+        # other receipt keeps the explicit provenance gap regardless of spelling.
+        if verified.status == "PASSED" and not has_owner_provenance:
             result["status"] = "UNKNOWN"
             result["notes"] = list(result["notes"]) + [provenance_note]
         if result["status"] == "PASSED":
             seen_pass.add(payload.get("check_id"))
-        results.append({**result, "check_id": payload.get("check_id")})
+            if has_owner_provenance:
+                owner_provenanced.add(payload.get("check_id"))
+        results.append({**result, "check_id": payload.get("check_id"),
+                        "provenance": provenance if has_owner_provenance else None})
 
     missing_required = [cid for cid in (c.check_id for c in contract.required_checks)
                         if cid not in seen_pass]
-    overall = _overall_from(results, missing_required)
+    overall = _overall_from(results, missing_required, owner_provenanced,
+                            tuple(c.check_id for c in contract.required_checks))
     completion = {
         "overall_status": overall,
         "missing_required": missing_required,
         "receipts_count": len(receipt_rows),
         "verification": results,
-        "trust_model": "production-strict (round-2): receipts without independently verified "
-                       "authority/collection never clear — grant_ref/collector strings of ANY "
-                       "spelling are receipt content, not provenance; the protected-host trust "
-                       "seam is not wired in this build (INCOMPLETE by design until C0.2/C0.3 "
-                       "land)",
+        "trust_model": "production-strict: receipts clear only on independent owner provenance "
+                       "recorded in the private authority ledger for an executed, "
+                       "isolation-attested attempt; grant_ref/collector strings of ANY spelling "
+                       "are receipt content, not provenance",
     }
     stored_payload = dict(assessment["payload"])
     stored_payload["completion"] = completion
@@ -301,16 +573,39 @@ def verify(state_dir, assessment_id: str, caller: str = "cli") -> dict:
             "contract_id": assessment["payload"].get("contract_id")}
 
 
-def _production_collector_of(payload: dict):
+_NO_PROVENANCE_COLLECTOR = "trusted-collector:NOT-AVAILABLE-IN-PRODUCTION-v0.1"
+
+
+def _production_collector_of(payload: dict, ledger=None, assessment_id: str | None = None):
     """C5: the trusted collector identity comes from an INDEPENDENT host decision, never from
-    the receipt's own self-supplied field. Until the protected-host seam exists, every receipt
-    is reverified against an untrusted identity string — the identity layers still guard
-    (tamper/cross/caller), but nothing accepts a fabricated `collector` field as trust."""
-    del payload  # receipt content must not influence the decision
-    return "trusted-collector:NOT-AVAILABLE-IN-PRODUCTION-v0.1"
+    the receipt's own self-supplied field. The only independent decision that exists is the
+    private authority ledger written beside the executed claims; a receipt is owner-provenanced
+    only when a ledger row joins its receipt_id, belongs to this assessment, matches its
+    check and collector record, and carries owner-class authority. Returns the ledger's
+    provenance marker (owner, key id) or None; the ledger-confirmed collector record is what
+    the receipt's own collector field is asserted against."""
+    if ledger is None or assessment_id is None:
+        return None
+    receipt_id_value = payload.get("receipt_id")
+    if not receipt_id_value:
+        return None
+    row = ledger.provenance(receipt_id_value)
+    if not row or row.get("authority_class") != "owner":
+        return None
+    binds = (
+        row.get("assessment_id") == str(assessment_id),
+        row.get("check_id") == payload.get("check_id"),
+        row.get("collector") == payload.get("collector"),
+        bool(row.get("key_id")) and bool(row.get("nonce")),
+    )
+    if not all(binds):
+        return None
+    return f"owner-ledger:{row['key_id']}"
 
 
-def _overall_from(results: list, missing_required: list) -> str:
+def _overall_from(results: list, missing_required: list,
+                  owner_provenanced: set[str] | None = None,
+                  required_ids: tuple | None = None) -> str:
     if not results:
         return "INCOMPLETE"
     statuses = {r.get("status") for r in results}
@@ -320,8 +615,13 @@ def _overall_from(results: list, missing_required: list) -> str:
         return "INCOMPLETE"
     if "FAILED" in statuses:
         return "FINDINGS_PRESENT"
-    # C5 ceiling: trust seam not wired. Even all-PASSED stays INCOMPLETE; scope-complete
-    # verdicts are unreachable from the public service in this build.
+    # C5 ceiling, updated by the M1 trust seam: scope-complete verdicts are reachable ONLY when
+    # every required check reached PASSED backed by independent owner provenance. Anything less
+    # stays INCOMPLETE; no receipt content can lift the ceiling.
+    cleared = owner_provenanced or set()
+    required = tuple(required_ids or ())
+    if required and all(cid in cleared for cid in required):
+        return "ASSESSED_WITHIN_DECLARED_SCOPE"
     return "INCOMPLETE"
 
 

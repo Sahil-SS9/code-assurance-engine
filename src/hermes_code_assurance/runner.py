@@ -24,6 +24,9 @@ class CheckRunner:
     authority: object = field(default_factory=DenyAllAuthority)
     isolation: IsolationBackend = field(default_factory=IsolationBackend)
     collector: Callable | None = None
+    # The gated execution seam: an adapter with execute_check(*, spec, base_receipt) that claims,
+    # isolates and collects ONE verified grant. None keeps the legacy refusal path exactly.
+    execution_adapter: object | None = None
 
     def attempt_checks(
         self,
@@ -119,6 +122,9 @@ class CheckRunner:
                 "EXECUTION_UNAVAILABLE",
                 f"authority denied: {'; '.join(decision.refusals)}",
             )
+
+        if self.execution_adapter is not None:
+            return self.execution_adapter.execute_check(spec=spec, base_receipt=base)
 
         try:
             self.isolation.request_run(

@@ -23,9 +23,19 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--assessment", default=None)
     sub.add_argument("--contract-json", required=True)
 
+    sub = subs.add_parser("approve", help="owner gate: a signed bundle completes contract review")
+    sub.add_argument("--assessment", required=True)
+    sub.add_argument("--owner-keys", required=True)
+    sub.add_argument("--owner-request", required=True)
+    sub.add_argument("--owner-signature", required=True)
+    sub.add_argument("--state-dir", default=None)
+
     sub = subs.add_parser("run", help="attempt gated check execution (denied by default)")
     sub.add_argument("--assessment", required=True)
     sub.add_argument("--state-dir", default=None)
+    sub.add_argument("--owner-keys", default=None, help="owner trust root (owner-signed run)")
+    sub.add_argument("--owner-request", default=None)
+    sub.add_argument("--owner-signature", default=None)
 
     sub = subs.add_parser("status", help="assessment state + check statuses")
     sub.add_argument("--assessment", required=True)
@@ -65,7 +75,35 @@ def run(argv: list[str] | None, *, state_dir=None) -> str:
             service.plan_checks(resolved, contract, args.assessment), sort_keys=True
         )
     if subcommand == "run":
+        bundle = (args.owner_keys, args.owner_request, args.owner_signature)
+        if all(bundle):
+            from .owner_authority import AuthorityDenied
+
+            try:
+                return json.dumps(service.run_owner_journey(
+                    resolved, args.assessment,
+                    owner_keys=args.owner_keys, owner_request=args.owner_request,
+                    owner_signature=args.owner_signature, caller="cli",
+                ), sort_keys=True)
+            except AuthorityDenied as exc:
+                return json.dumps({
+                    "assessment_id": args.assessment, "status": "AUTHORITY_REFUSED",
+                    "reason": "; ".join(exc.reasons), "receipts_unchanged": True,
+                }, sort_keys=True)
         return json.dumps(service.run_checks(resolved, args.assessment, caller="cli"), sort_keys=True)
+    if subcommand == "approve":
+        from hermes_code_assurance.owner_authority import AuthorityDenied
+
+        try:
+            return json.dumps(service.approve_contract(
+                resolved, args.assessment, owner_keys=args.owner_keys,
+                owner_request=args.owner_request, owner_signature=args.owner_signature,
+            ), sort_keys=True)
+        except AuthorityDenied as exc:
+            return json.dumps({
+                "assessment_id": args.assessment, "status": "AUTHORITY_REFUSED",
+                "reason": "; ".join(exc.reasons), "receipts_unchanged": True,
+            }, sort_keys=True)
     if subcommand == "status":
         return json.dumps(service.status(resolved, args.assessment), sort_keys=True)
     if subcommand == "verify":

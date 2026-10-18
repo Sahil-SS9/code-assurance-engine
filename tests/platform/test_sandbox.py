@@ -1,9 +1,15 @@
-"""Platform-lane tests (CT10/CT18): OS-level containment and the full surface matrix.
+"""Platform-lane test placeholders (CT18 + lifecycle matrix).
 
-BLOCKED BY OWNER GATE (recorded):
-  - v0.1.0 ships NO verified OS isolation backend (Phase-0 blocker C0.3); execution is refused
-    by name ({sandbox.SandboxUnavailable}).
-  - Windows/macOS read-only-feature verification needs hosts this build does not touch.
+Status after the M1 execution slice (rootless-Docker backend landed):
+
+- CT10 (OS-level containment + escape battery) is IMPLEMENTED for the supported host: the real
+  rootless-Docker platform suite runs it now — see ``test_rootless_docker_backend.py``
+  (network-off, read-only inputs, output flood, pids/memory bounds, hostile candidates,
+  descendant cleanup, cancellation, forgery). No placeholder remains for CT10 on this host.
+- CT18 (full surface matrix incl. Windows/macOS read-only-feature verification) still needs
+  hosts this build does not touch; it remains a recorded blocker, never a pass.
+
+Legacy CT10 placeholder retired 2026-10-18 M1 wiring (replaced by the running platform suite).
 """
 
 from __future__ import annotations
@@ -11,13 +17,10 @@ from __future__ import annotations
 import pytest
 
 pytestmark = pytest.mark.skip(reason=(
-    "BLOCKED: native containment backend is not attested (C0.3); execution remains refused "
-    "by name until a verified isolated backend lands"
+    "BLOCKED: the CT18 surface matrix needs Windows/macOS hosts this build does not touch "
+    "(recorded blocker, never a pass); CT10 containment is covered by the rootless-Docker "
+    "platform suite"
 ))
-
-
-def test_native_containment_and_escapes():  # pragma: no cover
-    raise NotImplementedError
 
 
 def test_matrix_clean_profile_install_rollback():  # pragma: no cover
