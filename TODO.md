@@ -76,8 +76,10 @@ claim.
   collector -> calc-oracle PASSED 3/3 -> ledger claim+execution recorded (one-use, consumed)
   -> public verify: ASSESSED_WITHIN_DECLARED_SCOPE via owner-ledger provenance (C5 strict).
   Return packet: evidence/code-assurance-first-check/run-20261018T-owner-signed-journey/.
-  Next: independent review of the packet, then M2 (real candidate assessment; owner selects
-  repo/goals). CT17/CT18 remain recorded blockers (need a live host / other OSes).
+  Independent review (quan): VERIFIED; one LOW audit-trail defect found and fixed RED-first
+  (fa7edd0: verify's verdict transition now audited via set_state; live trail corrected
+  append-only). Suite 377/3. Next: M2 (real candidate assessment; owner selects repo/goals).
+  CT17/CT18 remain recorded blockers (need a live host / other OSes).
 
 **M2 (after the signed journey):** first REAL candidate assessment + value benchmark
 (CT21: seeded defects, clean negatives, false-assurance rate) — needs owner-selected
