@@ -52,7 +52,7 @@ claim.
   stubs. Gate: `scripts/checks.sh` (includes uv + global hermes launcher; not a harmless
   read-only check).
 
-## Current engineering state (18/10/2026 — M1 slice COMPLETE, awaiting the owner signature)
+## M1 COMPLETE (18/10/2026 evening): the real owner-signed journey RAN and PASSED
 
 - M1 execution slice (Docker isolation + owner Ed25519 authority + freeze + protected
   collector + hostile-code batteries): 364 passed/4 skipped (see FINAL-IMPLEMENTATION-EVIDENCE).
@@ -70,10 +70,14 @@ claim.
 - Suite at wiring head: 376 passed / 3 skipped (CT18 matrix placeholder retired to its honest
   blocker label; CT10 now runs for real). Ruff clean.
 - Wiring evidence: evidence/code-assurance-first-check/run-20261018T-wiring-greenhead/.
-- Remaining M1 finishing move (owner action then agent): Sahil runs the amended
-  prepare-owner-approved-check.sh (fresh data_root ...engine-j1; exact journey argv + real
-  digests supplied), then: verify bundle -> wired run on the real backend -> report -> owner
-  review packet. CT17/CT18 remain recorded blockers (need a live host / other OSes).
+- THE JOURNEY RAN: sahil signed (key_id 13bbf6a5..., trust root
+  /home/sahil/.config/code-assurance/owner-keys.json); assure approve -> APPROVED;
+  assure run -> real rootless-Docker container (attestation-verified controls) -> protected
+  collector -> calc-oracle PASSED 3/3 -> ledger claim+execution recorded (one-use, consumed)
+  -> public verify: ASSESSED_WITHIN_DECLARED_SCOPE via owner-ledger provenance (C5 strict).
+  Return packet: evidence/code-assurance-first-check/run-20261018T-owner-signed-journey/.
+  Next: independent review of the packet, then M2 (real candidate assessment; owner selects
+  repo/goals). CT17/CT18 remain recorded blockers (need a live host / other OSes).
 
 **M2 (after the signed journey):** first REAL candidate assessment + value benchmark
 (CT21: seeded defects, clean negatives, false-assurance rate) — needs owner-selected
