@@ -2,7 +2,7 @@
 name = "hermes-code-assurance-engine"
 version = "0.1.0"
 description = "Change-assurance engine: evaluates an immutable repository candidate against an explicit check contract and returns machine-readable evidence, findings and unverified gaps."
-readme = "docs/README.md"
+readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Sahil Saghir (owner); authored by KENSEI" }]
