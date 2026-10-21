@@ -11,6 +11,10 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
 
+[project.urls]
+Homepage = "https://github.com/Sahil-SS9/code-assurance-engine"
+Repository = "https://github.com/Sahil-SS9/code-assurance-engine"
+
 [build-system]
 requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"

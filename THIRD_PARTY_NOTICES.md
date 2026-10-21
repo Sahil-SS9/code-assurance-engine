@@ -1,6 +1,6 @@
 # Third-party notices
 
-This product (hermes-code-assurance-engine) is independently authored code under Apache-2.0.
+This product (code-assurance-engine) is independently authored code under Apache-2.0.
 
 ## Conceptual sources actually used (Apache-2.0, anthropics/claude-plugins-official)
 

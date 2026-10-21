@@ -83,4 +83,4 @@ The engine never returns an unconditional `SAFE`, `SECURE` or `READY_TO_MERGE`. 
 
 Licensed under Apache-2.0. See [NOTICE](NOTICE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Repository: https://github.com/Sahil-SS9/hermes-code-assurance-engine
+Repository: https://github.com/Sahil-SS9/code-assurance-engine
