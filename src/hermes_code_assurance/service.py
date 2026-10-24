@@ -49,6 +49,14 @@ def _dump_json(value) -> str:
 
 def inspect_candidate(state_dir, repo: str, base: str | None = None, head: str | None = None) -> dict:
     """Read-only: inventory + classification + proposed (non-executable) contract draft."""
+    # Upstream PR 143753 review (blocking 1): option-like refs are refused BEFORE any git call,
+    # at the service boundary, so the plain-dir path and the git path share the same guard.
+    for ref in (base, head):
+        if ref is not None and str(ref).startswith("-"):
+            raise ValueError(
+                f"git ref {str(ref)!r} must not start with '-': "
+                "refusing to pass option-like refs to git"
+            )
     reader = GitCandidateReader()
     inv = reader.read(repo, base=base, head=head).as_dict()
     inventory = classify_inventory(inv)

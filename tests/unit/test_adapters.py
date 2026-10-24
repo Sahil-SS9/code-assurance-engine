@@ -38,7 +38,13 @@ def test_tool_names_and_schemas_registered():
                 "assure_report", "assure_run"}
     assert expected <= set(ctx.tools)
     for name in expected:
-        assert "type" in ctx.tools[name]["schema"]
+        # Complete function schema (upstream PR 143753 review): the parameters object is the
+        # JSON schema; the top level carries name/description.
+        schema = ctx.tools[name]["schema"]
+        assert schema.get("type") == "function" or "parameters" in schema
+        assert schema.get("name") == name
+        assert isinstance(schema.get("description"), str) and schema["description"]
+        assert isinstance(schema["parameters"], dict) and "properties" in schema["parameters"]
         assert ctx.tools[name]["toolset"] == "code-assurance"
     assert "assure" in ctx.commands
     assert report["registered_tools"] >= 6

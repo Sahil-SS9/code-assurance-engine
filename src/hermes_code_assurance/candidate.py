@@ -49,6 +49,39 @@ def _utc_now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _resolve_ref(repo: Path, ref: str) -> str:
+    """Resolve a caller-supplied git ref to a full SHA before any plumbing uses it.
+
+    Defence in depth (upstream PR 143753 review, blocking item 1):
+      1. `--`, the end-of-options marker at the front of every ref argv below;
+      2. validation here: option-like value (leading '-') is refused BEFORE git runs;
+      3. `rev-parse --verify <sha>^{commit}` so only resolved SHAs ever reach later commands.
+    """
+    if str(ref).startswith("-"):
+        raise ValueError(
+            f"git ref {str(ref)!r} must not start with '-': refusing to pass option-like refs to git"
+        )
+    argv = [
+        "git", "--no-pager",
+        "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
+        "rev-parse", "--verify", "--end-of-options", str(ref) + "^{commit}",
+    ]
+    proc = subprocess.run(
+        argv,
+        check=False,
+        cwd=str(repo),
+        shell=False,  # type: ignore[arg-type]
+        capture_output=True,
+        timeout=GIT_TIMEOUT_SECONDS,
+        env=scrubbed_git_env(),
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"git rev-parse --verify {str(ref)[:3]}… failed: {proc.stderr.decode()[:200]}"
+        )
+    return proc.stdout.decode("utf-8", errors="replace").strip()
+
+
 @dataclass
 class CandidateInventory:
     repo_root: str
@@ -117,9 +150,12 @@ class GitCandidateReader:
     def _committed_changes(self, repo: Path, base: str, head: str | None) -> list[dict]:
         common = [
             "diff", "--name-status", "--no-ext-diff", "--no-textconv", "--find-renames",
-            "-r", "-z",
+            "-r", "-z", "--end-of-options",
         ]
-        refs = [base, head] if head else [base]
+        refs = [
+            _resolve_ref(repo, ref)  # refuses option-like refs BEFORE any diff argv is built
+            for ref in ((base, head) if head else (base,))
+        ]
         out = self._git(repo, *common, *refs).decode("utf-8", errors="replace")
         tokens = [t for t in out.split("\x00") if t]
         changes: list[dict] = []
@@ -213,13 +249,20 @@ class GitCandidateReader:
         )
 
     def _read_plain_dir(self, repo: Path, base: str | None, head: str | None):
-        """Non-git scope: honest read-only walk; gitignore semantics are NOT applied."""
+        """Non-git scope: honest read-only walk; gitignore semantics are NOT applied.
+
+        max_files is enforced DURING the walk (upstream PR 143753 review, recommended):
+        pointing the reader at a huge folder must stop early, never stall the turn.
+        """
         entries: list[dict] = []
         overshoot = False
         for root, _dirs, names in os.walk(repo):
             if ".git" in root.split(os.sep):
                 continue
             for name in names:
+                if len(entries) >= self.max_files:
+                    overshoot = True
+                    break
                 rel = os.path.relpath(os.path.join(root, name), repo)
                 path = repo / rel
                 if os.path.islink(path):
@@ -240,9 +283,16 @@ class GitCandidateReader:
                     {"path": rel, "kind": "file", "size": size,
                      "sha256": sha256_hex(path.read_bytes()), "mode": None, "note": ""}
                 )
+        return self._plain_inventory(repo, entries, overshoot, base, head)
+
+    def _plain_inventory(self, repo: Path, entries: list[dict], overshoot: bool,
+                         base: str | None, head: str | None):
+        """Assemble the plain-dir CandidateInventory (shared by the walk and its early stop)."""
         entries.sort(key=lambda e: e["path"])
         overshoot = overshoot or len(entries) > self.max_files
         note = "plain directory (gitignore semantics not applied: no repo)"
+        if overshoot:
+            note += "; file cap exceeded"
         if any(e["kind"] == "symlink" for e in entries):
             note += "; symlink recorded (target bytes not dereferenced)"
         records = sorted(

@@ -82,7 +82,12 @@ def _data_dir() -> Path:  # kept name for backwards-compat within the adapter
 def _tool_schemas():
     """Every handler resolves its state dir PER CALL through the C4 ladder (trusted override,
     args override guarded to permitted roots, or the host-active plugin-data root). Refusals
-    propagate as SecurityRefusal/StateRootUnavailable — never a silent fallback, never a write."""
+    propagate as SecurityRefusal/StateRootUnavailable — never a silent fallback, never a write.
+
+    Schemas are COMPLETE OpenAI function definitions ({"name", "description", "parameters"}):
+    the host registry passes these through to the model, so arguments AND the description must
+    live inside the schema itself (upstream PR 143753 review, blocking item 2).
+    """
     from hermes_code_assurance import service
 
     def state_root(args):
@@ -97,16 +102,39 @@ def _tool_schemas():
                 return _json({"refused": True, "error": f"{type(exc).__name__}: {exc}"})
         return call
 
+    def schema_of(name: str, description: str, properties: dict, required: list[str]) -> dict:
+        return {
+            "name": name,
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+            },
+        }
+
     return {
         "assure_inspect": {
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "repo": {"type": "string"}, "state_dir": {"type": "string"},
-                    "base": {"type": "string"}, "head": {"type": "string"},
+            "schema": schema_of(
+                "assure_inspect",
+                "Read-only candidate inventory + non-executable contract proposal. Identifies "
+                "the repo contents at the given git refs without running anything.",
+                {
+                    "repo": {"type": "string",
+                             "description": "Path to the git repository to inspect."},
+                    "state_dir": {"type": "string",
+                                  "description": "Optional state directory inside the "
+                                                 "plugin's permitted data root."},
+                    "base": {"type": "string",
+                             "description": "Optional git ref (SHA or branch name) to diff "
+                                            "against; must not start with '-'. Defaults to "
+                                            "working-tree inventory."},
+                    "head": {"type": "string",
+                             "description": "Optional git ref to compare against base; must "
+                                            "not start with '-'."},
                 },
-                "required": ["repo"],
-            },
+                ["repo"],
+            ),
             "handler": handler_for(
                 lambda root, args: service.inspect_candidate(
                     root, args["repo"], base=args.get("base"), head=args.get("head")
@@ -115,15 +143,24 @@ def _tool_schemas():
             "description": "Read-only candidate inventory + non-executable contract proposal.",
         },
         "assure_plan_checks": {
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "state_dir": {"type": "string"},
-                    "contract": {"type": "object"},
-                    "assessment_id": {"type": "string"},
+            "schema": schema_of(
+                "assure_plan_checks",
+                "Freeze a reviewed CheckContract v1 onto an assessment so execution can later "
+                "be gated against exactly that contract.",
+                {
+                    "contract": {"type": "object",
+                                 "description": "Complete check contract body (check-contract "
+                                                "v1 schema) agreed by the reviewer."},
+                    "state_dir": {"type": "string",
+                                  "description": "Optional state directory inside the "
+                                                 "plugin's permitted data root."},
+                    "assessment_id": {"type": "string",
+                                      "description": "Target assessment id from "
+                                                     "assure_inspect; defaults to the "
+                                                     "contract's own id."},
                 },
-                "required": ["contract"],
-            },
+                ["contract"],
+            ),
             "handler": handler_for(
                 lambda root, args: service.plan_checks(
                     root, args["contract"], args.get("assessment_id")
@@ -132,28 +169,57 @@ def _tool_schemas():
             "description": "Freeze a reviewed CheckContract v1 onto an assessment.",
         },
         "assure_status": {
-            "schema": {"type": "object", "properties": {"assessment_id": {"type": "string"},
-                                                       "state_dir": {"type": "string"}},
-                       "required": ["assessment_id"]},
+            "schema": schema_of(
+                "assure_status",
+                "Report the assessment state plus per-check receipt statuses.",
+                {
+                    "assessment_id": {"type": "string",
+                                      "description": "Assessment id from assure_inspect."},
+                    "state_dir": {"type": "string",
+                                  "description": "Optional state directory inside the "
+                                                 "plugin's permitted data root."},
+                },
+                ["assessment_id"],
+            ),
             "handler": handler_for(
                 lambda root, args: service.status(root, args["assessment_id"])
             ),
             "description": "Assessment state + per-check statuses.",
         },
         "assure_verify": {
-            "schema": {"type": "object", "properties": {"assessment_id": {"type": "string"},
-                                                       "state_dir": {"type": "string"}},
-                       "required": ["assessment_id"]},
+            "schema": schema_of(
+                "assure_verify",
+                "Reverify persisted receipts (identity layers) and compute the overall status. "
+                "Idempotent; refuses new-receipt drift without a write.",
+                {
+                    "assessment_id": {"type": "string",
+                                      "description": "Assessment id from assure_inspect."},
+                    "state_dir": {"type": "string",
+                                  "description": "Optional state directory inside the "
+                                                 "plugin's permitted data root."},
+                },
+                ["assessment_id"],
+            ),
             "handler": handler_for(
                 lambda root, args: service.verify(root, args["assessment_id"])
             ),
             "description": "Reverify persisted receipts (identity layers) and compute overall.",
         },
         "assure_report": {
-            "schema": {"type": "object", "properties": {"assessment_id": {"type": "string"},
-                                                       "state_dir": {"type": "string"},
-                                                       "fmt": {"enum": ["markdown", "json"]}},
-                       "required": ["assessment_id"]},
+            "schema": schema_of(
+                "assure_report",
+                "Render the scoped private assessment report (markdown or json).",
+                {
+                    "assessment_id": {"type": "string",
+                                      "description": "Assessment id from assure_inspect."},
+                    "state_dir": {"type": "string",
+                                  "description": "Optional state directory inside the "
+                                                 "plugin's permitted data root."},
+                    "fmt": {"enum": ["markdown", "json"],
+                            "description": "Report format; defaults to markdown."},
+                },
+                ["assessment_id"],
+            ),
             "handler": handler_for(
                 lambda root, args: service.report(root, args["assessment_id"],
                                                   fmt=args.get("fmt", "markdown"))
@@ -161,10 +227,22 @@ def _tool_schemas():
             "description": "Render the scoped private assessment report (markdown/json).",
         },
         "assure_run": {
-            "schema": {"type": "object", "properties": {"assessment_id": {"type": "string"},
-                                                       "repo": {"type": "string"},
-                                                       "state_dir": {"type": "string"}},
-                       "required": ["assessment_id"]},
+            "schema": schema_of(
+                "assure_run",
+                "Attempt the gated check run. Refuses unless the assessment state is APPROVED "
+                "and the venue gates pass; records a NOT_APPROVED receipt otherwise.",
+                {
+                    "assessment_id": {"type": "string",
+                                      "description": "Assessment id from assure_inspect."},
+                    "repo": {"type": "string",
+                             "description": "Candidate repository path (recorded, read-only "
+                                            "for this tool)."},
+                    "state_dir": {"type": "string",
+                                  "description": "Optional state directory inside the "
+                                                 "plugin's permitted data root."},
+                },
+                ["assessment_id"],
+            ),
             "handler": handler_for(
                 lambda root, args: service.run_checks(root, args["assessment_id"],
                                                       caller="plugin-tool")
@@ -190,10 +268,78 @@ def _slash_handler():
     return handle
 
 
-def _cli_setup(subparser):
+def _cli_handler(args) -> int:
+    """`hermes assure` entrypoint: one canonical-JSON line to stdout, exit-code contract per
+    host convention (0 = completed, 1 = refused/error, 2 = usage error).
+
+    State-dir contract (C4 ladder, CLI surface): the operator CLI is a trusted surface, so an
+    explicit --state-dir is honoured for it (documented in docs/compatibility.md); without one
+    the CLI resolves the host-active plugin data dir per call and refuses loudly when no
+    trusted root exists. Model-controlled tool args keep the stricter guarded path."""
+    import json
+
     from hermes_code_assurance import cli as cli_mod
 
-    return cli_mod.build_parser()
+    rc = 0
+    try:
+        argv = _cli_argv_from(args)
+        # Refusals FIRST (before any state resolution or git call): option-like refs.
+        for ref in (getattr(args, "base", None), getattr(args, "head", None)):
+            if ref is not None and str(ref).startswith("-"):
+                payload = {"refused": True,
+                           "error": f"git ref {str(ref)!r} must not start with '-': "
+                                    "refusing to pass option-like refs to git"}
+                print(json.dumps(payload, sort_keys=True))
+                return 1
+        supplied = getattr(args, "state_dir", None)
+        if supplied:
+            state_dir = str(Path(supplied))
+        else:
+            state_dir = str(_data_dir())
+        payload = json.loads(cli_mod.run(argv, state_dir=state_dir))
+    except SystemExit as exc:  # argparse usage errors
+        payload = {"refused": True, "error": "usage error: see `hermes assure --help`"}
+        rc = 2 if exc.code else 0
+    except (SecurityRefusal, StateRootUnavailable) as exc:
+        payload = {"refused": True, "error": f"{type(exc).__name__}: {exc}"}
+        rc = 1
+    except Exception as exc:  # noqa: BLE001 — one honest line, never a traceback into the CLI
+        payload = {"refused": True, "error": f"{type(exc).__name__}: {exc}"}
+        rc = 1
+    print(json.dumps(payload, sort_keys=True))
+    return rc
+
+
+def _cli_argv_from(args) -> list[str] | None:
+    """Rebuild the domain argv from the host namespace (assure subcommand + its options)."""
+    subcommand = getattr(args, "assure_subcommand", None)
+    if not subcommand:
+        return None
+    argv = [subcommand]
+    mapping = {
+        "repo": "--repo", "state_dir": "--state-dir", "base": "--base", "head": "--head",
+        "assessment": "--assessment", "contract_json": "--contract-json",
+        "owner_keys": "--owner-keys", "owner_request": "--owner-request",
+        "owner_signature": "--owner-signature", "fmt": "--fmt",
+    }
+    for field, flag in mapping.items():
+        value = getattr(args, field, None)
+        if value is not None:
+            argv.extend([flag, str(value)])
+    return argv
+
+
+def _cli_setup(subparser):
+    """Compatibility alias kept for the host's register path and older tests."""
+    return register_cli_assure(subparser)
+
+
+def register_cli_assure(subparser):
+    """Populate the host-supplied `hermes assure` subparser with the SHARED domain tree
+    (upstream PR 143753 review, blocking item 3) and attach the real handler."""
+    from hermes_code_assurance.cli import attach_to_subparser
+
+    return attach_to_subparser(subparser, handler_name="assure_handler", handler=_cli_handler)
 
 
 def register_plugin(ctx, state_dir=None) -> dict:
@@ -225,8 +371,8 @@ def register_plugin(ctx, state_dir=None) -> dict:
         try:
             ctx.register_cli_command(
                 "assure", help="Code Assurance Engine (read-only default; gated execution)",
-                setup_fn=_cli_setup,
-                handler_fn=None,
+                setup_fn=register_cli_assure,
+                handler_fn=_cli_handler,  # host wires handler_fn -> set_defaults(func=...) (main.py:3251-3252)
                 description="Change-assurance engine CLI subcommand tree.",
             )
             report["commands"].append("hermes assure")

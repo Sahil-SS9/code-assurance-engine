@@ -56,6 +56,12 @@ The engine never returns an unconditional `SAFE`, `SECURE` or `READY_TO_MERGE`. 
 - Reports are private by default and can be rendered without external assets.
 - Missing evidence stays visible in the output.
 
+**Trust boundary for gateway use:** owner approval is bounded by whoever can reach
+`/assure approve`. `--owner-keys` names the trust root the CLI reads, so the approval is as
+strong as access to that surface. In a gateway session the approval gates on the session
+decide; keep the trust root outside the model-reachable workspace, and run the approval from
+an operator shell when that gate is not trusted.
+
 ## What you can do today
 
 - Inspect a repository candidate and produce a proposed check contract.
