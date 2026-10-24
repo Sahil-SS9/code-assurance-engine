@@ -18,8 +18,11 @@ Known fallback behaviour:
   NO bare-home fallback: when no trusted root resolves (e.g. the plugin runs outside a Hermes
   process with no SDK seam), the call REFUSES with `StateRootUnavailable` and writes nothing
   (regression-tested in `tests/unit/test_c4_data_dir.py`).
-- CLI surface (`assure` / `hermes assure`): an explicit `--state-dir` is honoured for the
-  OPERATOR surface (documented trust boundary above); model-controlled tool args keep the
-  guarded path.
+- Operator surfaces (`/assure ...` and `hermes assure ...`): an explicit `--state-dir` typed
+  by the operator is honoured (documented trust boundary above). Model-controlled TOOL args
+  keep the guarded ladder: a foreign `state_dir` there refuses with `SecurityRefusal` and no
+  write (surface contract pinned in `tests/unit/test_slash_state_dir_contract.py`).
+- Slash and CLI surfaces never leak a traceback: nested argparse usage errors convert to the
+  honest usage line + exit 2 (CLI) or the usage message (slash).
 - Git refs from model-supplied `base`/`head` are resolved to SHAs and option-like values are
   refused before any git call (see threat-model "Model-supplied git refs").

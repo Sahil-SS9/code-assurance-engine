@@ -50,7 +50,6 @@ def test_sdk_error_refuses_instead_of_live_home(tmp_path, monkeypatch):
     The pre-existing reviewed stray directory must stay UNTOUCHED (byte-stat compare)."""
 
     from hermes_code_assurance.adapters.hermes import register_plugin
-    from hermes_code_assurance.adapters_scope import StateRootUnavailable
 
     # Only run the bare-fallback proof when the reviewed stray is absent (cleanup is a separate
     # owner-approved action); otherwise verify the refusal leaves its stat unchanged.
@@ -58,8 +57,12 @@ def test_sdk_error_refuses_instead_of_live_home(tmp_path, monkeypatch):
 
     ctx = RecordingCtx()
     register_plugin(ctx)
-    with pytest.raises(StateRootUnavailable):
-        ctx.tools["assure_status"]["handler"]({"assessment_id": "none"})
+    # Surface contract (PR 143753 skeptic round): the TOOL HANDLER surfaces the ladder's
+    # refusal as data (never an exception into the host turn); the raise itself is asserted
+    # directly on the ladder in test_refusal_raised_by_ladder_directly below.
+    out = json.loads(ctx.tools["assure_status"]["handler"]({"assessment_id": "none"}))
+    assert out["refused"] is True
+    assert out["error"].startswith("StateRootUnavailable")
     if stray_stat is not None:
         assert FORBIDDEN_DEFAULT.stat() == stray_stat, (
             "refusal path must not touch the pre-existing stray directory"
@@ -85,16 +88,25 @@ def test_active_home_resolution_follows_profile_per_call(tmp_path, stub_hermes_c
 
 def test_foreign_state_dir_from_tool_args_refused_without_write(tmp_path):
     from hermes_code_assurance.adapters.hermes import register_plugin
-    from hermes_code_assurance.adapters_scope import SecurityRefusal
 
     ctx = RecordingCtx()
     override = tmp_path / "trusted_root"
     register_plugin(ctx, state_dir=override)
-    with pytest.raises(SecurityRefusal):
-        ctx.tools["assure_status"]["handler"](
-            {"assessment_id": "x", "state_dir": "/tmp/attacker-chosen"}
-        )
+    out = json.loads(ctx.tools["assure_status"]["handler"](
+        {"assessment_id": "x", "state_dir": "/tmp/attacker-chosen"}))
+    assert out["refused"] is True
+    assert out["error"].startswith("SecurityRefusal")
     assert not Path("/tmp/attacker-chosen/assessments.db").exists()
+
+
+def test_refusal_raised_by_ladder_directly(tmp_path):
+    """The LADDER still raises (C4 reviewed contract); only the tool surface converts the
+    refusal to data."""
+    from hermes_code_assurance.adapters.hermes import _resolve_state_dir
+    from hermes_code_assurance.adapters_scope import SecurityRefusal
+
+    with pytest.raises(SecurityRefusal):
+        _resolve_state_dir("/tmp/attacker-chosen")
 
 
 def test_explicit_override_controls_every_handler_with_no_registration_writes(tmp_path):

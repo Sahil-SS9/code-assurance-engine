@@ -95,8 +95,8 @@ def _tool_schemas():
 
     def handler_for(fn):
         def call(args):
-            root = state_root(args)
             try:
+                root = state_root(args)  # ladder refusals surface as data, never an exception
                 return _json(fn(root, args))
             except (SecurityRefusal, StateRootUnavailable) as exc:
                 return _json({"refused": True, "error": f"{type(exc).__name__}: {exc}"})
@@ -263,6 +263,10 @@ def _slash_handler():
             from hermes_code_assurance import cli
 
             return cli.run(subcommand, state_dir=str(_data_dir()))
+        except SystemExit:
+            # Nested argparse usage errors (missing --assessment etc.) must not escape the
+            # slash surface either (skeptic round finding 3).
+            return "assure usage error: see `/assure help` or `hermes assure --help`."
         except Exception as exc:  # noqa: BLE001 — surfaces never raise into the host turn
             return f"assure command error: {exc}"
     return handle
@@ -283,6 +287,10 @@ def _cli_handler(args) -> int:
     rc = 0
     try:
         argv = _cli_argv_from(args)
+        argv = argv or []
+        # argv must be a full domain argv; missing subcommand is a HOST parse concern, but a
+        # NESTED parse error inside cli.run raises SystemExit here, INSIDE this try: catch
+        # below applies to both layers (skeptic round finding 2).
         # Refusals FIRST (before any state resolution or git call): option-like refs.
         for ref in (getattr(args, "base", None), getattr(args, "head", None)):
             if ref is not None and str(ref).startswith("-"):
